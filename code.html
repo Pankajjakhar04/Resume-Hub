@@ -149,7 +149,7 @@
                 this.currentView = 'landing';
                 this.resumes = [];
                 this.users = [];
-                this.apiBaseUrl = 'http://localhost:3000/api';
+                this.apiBaseUrl = window.location.origin + '/api';
             }
 
             loadUserFromStorage() {

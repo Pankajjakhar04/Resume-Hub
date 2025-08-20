@@ -455,21 +455,27 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'code.html'));
 });
 
-// Start server
-connectToMongoDB()
-  .then(async (database) => {
-    db = database;
-    console.log('MongoDB connected successfully');
-    
-    // Initialize admin user before starting server
-    await initializeAdmin();
-    
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log('Admin initialization completed');
+// For Vercel deployment, export the app
+module.exports = app;
+
+// Only start server if running locally (not on Vercel)
+if (process.env.NODE_ENV !== 'production') {
+  // Start server
+  connectToMongoDB()
+    .then(async (database) => {
+      db = database;
+      console.log('MongoDB connected successfully');
+      
+      // Initialize admin user before starting server
+      await initializeAdmin();
+      
+      app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+        console.log('Admin initialization completed');
+      });
+    })
+    .catch(err => {
+      console.error('Failed to connect to MongoDB:', err);
+      process.exit(1);
     });
-  })
-  .catch(err => {
-    console.error('Failed to connect to MongoDB:', err);
-    process.exit(1);
-  });
+}
