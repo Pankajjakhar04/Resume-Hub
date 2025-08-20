@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResumeHub - Professional Resume Management</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(0); }
+        }
+        
+        /* Mobile-specific improvements */
+        @media (max-width: 768px) {
+            .container {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            
+            .text-5xl {
+                font-size: 2.5rem;
+            }
+            
+            .text-3xl {
+                font-size: 1.875rem;
+            }
+            
+            .grid.md\\:grid-cols-3 {
+                grid-template-columns: 1fr;
+            }
+            
+            .max-w-md {
+                max-width: 100%;
+                margin-left: 1rem;
+                margin-right: 1rem;
+            }
+        }
+        
+        /* Improved focus states for accessibility */
+        button:focus, input:focus, textarea:focus {
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
+        }
+        
+        /* Better loading states */
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        /* Improved toast positioning for mobile */
+        @media (max-width: 640px) {
+            #toastContainer {
+                right: 1rem;
+                left: 1rem;
+                top: 1rem;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="gradient-bg shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <i class="fas fa-file-alt text-white text-2xl mr-3"></i>
+                    <span class="text-white text-xl font-bold">ResumeHub</span>
+                </div>
+                <div class="hidden md:block">
+                    <div class="flex items-center space-x-4" id="navItems">
+                        <!-- Navigation items will be populated by JavaScript -->
+                    </div>
+                </div>
+                <div class="md:hidden">
+                    <button id="mobileMenuBtn" class="text-white">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Mobile menu -->
+        <div id="mobileMenu" class="md:hidden hidden bg-purple-700">
+            <div class="px-2 pt-2 pb-3 space-y-1" id="mobileNavItems">
+                <!-- Mobile navigation items will be populated by JavaScript -->
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div id="app" class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Content will be dynamically loaded here -->
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-6 rounded-lg shadow-xl">
+            <div class="flex items-center space-x-3">
+                <div class="loading-spinner"></div>
+                <span class="text-gray-700">Processing...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2">
+        <!-- Toast notifications will appear here -->
+    </div>
+
+    <script>
+        // Application State Management
+        class AppState {
+            constructor() {
+                this.currentUser = this.loadUserFromStorage();
+                this.currentView = 'landing';
+                this.resumes = [];
+                this.users = [];
+                this.apiBaseUrl = 'http://localhost:3000/api';
+            }
+
+            loadUserFromStorage() {
+                const userData = localStorage.getItem('resumehub_user');
+                return userData ? JSON.parse(userData) : null;
+            }
+
+            saveUserToStorage(user) {
+                localStorage.setItem('resumehub_user', JSON.stringify(user));
+                this.currentUser = user;
+            }
+
+            clearUserFromStorage() {
+                localStorage.removeItem('resumehub_user');
+                this.currentUser = null;
+            }
+
+            isAuthenticated() {
+                return this.currentUser !== null;
+            }
+
+            isAdmin() {
+                return this.currentUser && this.currentUser.role === 'admin';
+            }
+        }
+
+        // API Service for MongoDB Integration
+        class ApiService {
+            constructor(appState) {
+                this.appState = appState;
+                this.baseUrl = appState.apiBaseUrl;
+            }
+
+            async registerUser(userData) {
+                try {
+                    const response = await fetch(`${this.baseUrl}/users/register`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(userData)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Registration failed');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Registration error:', error);
+                    throw error;
+                }
+            }
+
+            async loginUser(email, password) {
+                try {
+                    const response = await fetch(`${this.baseUrl}/users/login`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Login failed');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Login error:', error);
+                    throw error;
+                }
+            }
+
+            async saveResume(userId, resumeData) {
+                try {
+                    const response = await fetch(`${this.baseUrl}/resumes`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            userId,
+                            ...resumeData
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to save resume');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Save resume error:', error);
+                    throw error;
+                }
+            }
+
+            async getUserResumes(userId) {
+                try {
+                    const response = await fetch(`${this.baseUrl}/users/${userId}/resumes`);
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to fetch resumes');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Get resumes error:', error);
+                    throw error;
+                }
+            }
+
+            async getAllUsers() {
+                try {
+                    const response = await fetch(`${this.baseUrl}/admin/users`);
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to fetch users');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Get users error:', error);
+                    throw error;
+                }
+            }
+
+            async getAllResumesWithUsers() {
+                try {
+                    const response = await fetch(`${this.baseUrl}/admin/resumes`);
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to fetch all resumes');
+                    }
+
+                    return await response.json();
+                } catch (error) {
+                    console.error('Get all resumes error:', error);
+                    throw error;
+                }
+            }
+
+            // Helper method to get user ID (handles both MongoDB ObjectId and regular ID)
+            getUserId(user) {
+                return user.id || user._id || null;
+            }
+
+            // Helper method to get resume ID (handles both MongoDB ObjectId and regular ID)
+            getResumeId(resume) {
+                return resume.id || resume._id || null;
+            }
+        }
+
+        // UI Service for managing views and components
+        class UIService {
+            constructor(appState, apiService) {
+                this.appState = appState;
+                this.apiService = apiService;
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                // Mobile menu toggle
+                document.getElementById('mobileMenuBtn').addEventListener('click', () => {
+                    const mobileMenu = document.getElementById('mobileMenu');
+                    mobileMenu.classList.toggle('hidden');
+                });
+
+                // Close mobile menu when clicking outside
+                document.addEventListener('click', (e) => {
+                    const mobileMenu = document.getElementById('mobileMenu');
+                    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+                    
+                    if (mobileMenu && !mobileMenu.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+                        mobileMenu.classList.add('hidden');
+                    }
+                });
+
+                // Close mobile menu when window is resized to desktop
+                window.addEventListener('resize', () => {
+                    if (window.innerWidth >= 768) { // md breakpoint
+                        const mobileMenu = document.getElementById('mobileMenu');
+                        if (mobileMenu) {
+                            mobileMenu.classList.add('hidden');
+                        }
+                    }
+                });
+            }
+
+            showLoading() {
+                document.getElementById('loadingOverlay').classList.remove('hidden');
+            }
+
+            hideLoading() {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }
+
+            showToast(message, type = 'success') {
+                const toastContainer = document.getElementById('toastContainer');
+                const toast = document.createElement('div');
+                const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
+                
+                toast.className = `${bgColor} text-white px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full`;
+                toast.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                        <span>${message}</span>
+                    </div>
+                `;
+                
+                toastContainer.appendChild(toast);
+                
+                // Trigger animation
+                setTimeout(() => {
+                    toast.classList.remove('translate-x-full');
+                }, 100);
+                
+                // Remove toast after delay
+                setTimeout(() => {
+                    toast.classList.add('translate-x-full');
+                    setTimeout(() => {
+                        toastContainer.removeChild(toast);
+                    }, 300);
+                }, 3000);
+            }
+
+            updateNavigation() {
+                const navItems = document.getElementById('navItems');
+                const mobileNavItems = document.getElementById('mobileNavItems');
+                
+                let navHTML = '';
+                
+                if (this.appState.isAuthenticated()) {
+                    const userName = this.appState.currentUser.name.split(' ')[0];
+                    navHTML = `
+                        <button onclick="uiService.showDashboard()" class="text-white hover:text-purple-200 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            <i class="fas fa-tachometer-alt mr-1"></i> Dashboard
+                        </button>
+                        ${this.appState.isAdmin() ? `
+                            <button onclick="uiService.showAdminPanel()" class="text-white hover:text-purple-200 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                                <i class="fas fa-users-cog mr-1"></i> Admin Panel
+                            </button>
+                        ` : ''}
+                        <div class="flex items-center space-x-4">
+                            <span class="text-white text-sm">Welcome, ${userName}</span>
+                            <button onclick="uiService.logout()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                                <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    navHTML = `
+                        <button onclick="uiService.showLogin()" class="text-white hover:text-purple-200 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                            <i class="fas fa-sign-in-alt mr-1"></i> Login
+                        </button>
+                        <button onclick="uiService.showRegister()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                            <i class="fas fa-user-plus mr-1"></i> Register
+                        </button>
+                    `;
+                }
+                
+                navItems.innerHTML = navHTML;
+                mobileNavItems.innerHTML = navHTML.replace(/px-3 py-2/g, 'block px-3 py-2');
+            }
+
+            showLanding() {
+                this.appState.currentView = 'landing';
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="fade-in">
+                        <div class="text-center">
+                            <div class="mb-8">
+                                <i class="fas fa-file-alt text-6xl text-purple-600 mb-4"></i>
+                                <h1 class="text-5xl font-bold text-gray-800 mb-4">ResumeHub</h1>
+                                <p class="text-xl text-gray-600 mb-8">Professional Resume Management System</p>
+                                <p class="text-lg text-gray-500 max-w-2xl mx-auto">
+                                    Organize, store, and manage your professional resumes with ease. 
+                                    Upload multiple versions, add descriptions, and access them anytime.
+                                </p>
+                            </div>
+                            
+                            <div class="grid md:grid-cols-3 gap-8 mt-12">
+                                <div class="bg-white p-6 rounded-lg shadow-lg card-hover">
+                                    <i class="fas fa-cloud-upload-alt text-3xl text-purple-600 mb-4"></i>
+                                    <h3 class="text-xl font-semibold mb-2">Easy Upload</h3>
+                                    <p class="text-gray-600">Upload your resumes with custom descriptions for easy organization.</p>
+                                </div>
+                                
+                                <div class="bg-white p-6 rounded-lg shadow-lg card-hover">
+                                    <i class="fas fa-search text-3xl text-purple-600 mb-4"></i>
+                                    <h3 class="text-xl font-semibold mb-2">Quick Access</h3>
+                                    <p class="text-gray-600">Find and view your resumes instantly with our intuitive interface.</p>
+                                </div>
+                                
+                                <div class="bg-white p-6 rounded-lg shadow-lg card-hover">
+                                    <i class="fas fa-shield-alt text-3xl text-purple-600 mb-4"></i>
+                                    <h3 class="text-xl font-semibold mb-2">Secure Storage</h3>
+                                    <p class="text-gray-600">Your documents are stored securely with MongoDB and user authentication.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-12">
+                                <button onclick="uiService.showRegister()" class="gradient-bg text-white px-8 py-3 rounded-lg text-lg font-semibold hover:opacity-90 transition-opacity mr-4">
+                                    Get Started
+                                </button>
+                                <button onclick="uiService.showLogin()" class="bg-gray-200 text-gray-800 px-8 py-3 rounded-lg text-lg font-semibold hover:bg-gray-300 transition-colors">
+                                    Sign In
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            showLogin() {
+                this.appState.currentView = 'login';
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8 fade-in">
+                        <div class="text-center mb-8">
+                            <i class="fas fa-sign-in-alt text-4xl text-purple-600 mb-4"></i>
+                            <h2 class="text-2xl font-bold text-gray-800">Sign In</h2>
+                            <p class="text-gray-600">Access your resume dashboard</p>
+                        </div>
+                        
+                        <form id="loginForm">
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Email Address</label>
+                                <input type="email" id="loginEmail" required 
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors">
+                            </div>
+                            
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Password</label>
+                                <input type="password" id="loginPassword" required
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors">
+                            </div>
+                            
+                            <button type="submit" class="w-full gradient-bg text-white py-2 rounded-lg font-semibold hover:opacity-90 transition-opacity">
+                                Sign In
+                            </button>
+                        </form>
+                        
+                        <div class="mt-6 text-center">
+                            <p class="text-gray-600">Don't have an account? 
+                                <button onclick="uiService.showRegister()" class="text-purple-600 hover:text-purple-700 font-semibold">
+                                    Register here
+                                </button>
+                            </p>
+                        </div>
+                        
+                        <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+                            <p class="text-sm text-blue-700">
+                                <strong>Demo Accounts:</strong><br>
+                                Admin: admin@resumehub.com / admin123<br>
+                                User: Any registered account
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                this.setupLoginForm();
+            }
+
+            showRegister() {
+                this.appState.currentView = 'register';
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="max-w-md mx-auto bg-white rounded-lg shadow-lg p-8 fade-in">
+                        <div class="text-center mb-8">
+                            <i class="fas fa-user-plus text-4xl text-purple-600 mb-4"></i>
+                            <h2 class="text-2xl font-bold text-gray-800">Create Account</h2>
+                            <p class="text-gray-600">Join ResumeHub today</p>
+                        </div>
+                        
+                        <form id="registerForm">
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Full Name</label>
+                                <input type="text" id="registerName" required 
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors">
+                            </div>
+                            
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Email Address</label>
+                                <input type="email" id="registerEmail" required 
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors">
+                            </div>
+                            
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Password</label>
+                                <input type="password" id="registerPassword" required minlength="6"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 transition-colors">
+                                <p class="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+                            </div>
+                            
+                            <button type="submit" class="w-full gradient-bg text-white py-2 rounded-lg font-semibold hover:opacity-90 transition-opacity">
+                                Create Account
+                            </button>
+                        </form>
+                        
+                        <div class="mt-6 text-center">
+                            <p class="text-gray-600">Already have an account? 
+                                <button onclick="uiService.showLogin()" class="text-purple-600 hover:text-purple-700 font-semibold">
+                                    Sign in here
+                                </button>
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                this.setupRegisterForm();
+            }
+
+            showDashboard() {
+                this.appState.currentView = 'dashboard';
+                this.loadUserDashboard();
+            }
+
+            async loadUserDashboard() {
+                const app = document.getElementById('app');
+                
+                // Show loading skeleton
+                app.innerHTML = `
+                    <div class="fade-in">
+                        <div class="mb-8">
+                            <h1 class="text-3xl font-bold text-gray-800">My Dashboard</h1>
+                            <p class="text-gray-600">Manage your resume collection</p>
+                        </div>
+                        <div class="animate-pulse">
+                            <div class="h-4 bg-gray-200 rounded w-1/4 mb-4"></div>
+                            <div class="space-y-3">
+                                <div class="h-20 bg-gray-200 rounded"></div>
+                                <div class="h-20 bg-gray-200 rounded"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                try {
+                    const userId = this.apiService.getUserId(this.appState.currentUser);
+                    if (!userId) {
+                        throw new Error('Invalid user ID');
+                    }
+                    
+                    const resumes = await this.apiService.getUserResumes(userId);
+                    this.appState.resumes = resumes || [];
+                    
+                    app.innerHTML = `
+                        <div class="fade-in">
+                            <div class="flex justify-between items-center mb-8">
+                                <div>
+                                    <h1 class="text-3xl font-bold text-gray-800">My Dashboard</h1>
+                                    <p class="text-gray-600">Welcome back, ${this.appState.currentUser.name}</p>
+                                </div>
+                                <button onclick="uiService.showUploadModal()" class="gradient-bg text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity">
+                                    <i class="fas fa-plus mr-2"></i> Upload Resume
+                                </button>
+                            </div>
+                            
+                            <div class="grid gap-6">
+                                ${this.appState.resumes.length === 0 ? this.getEmptyState() : this.appState.resumes.map(resume => this.getResumeCard(resume)).join('')}
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    console.error('Dashboard loading error:', error);
+                    const errorMessage = error.message || 'Failed to load resumes';
+                    this.showToast(errorMessage, 'error');
+                    
+                    // Show error state
+                    app.innerHTML = `
+                        <div class="fade-in">
+                            <div class="mb-8">
+                                <h1 class="text-3xl font-bold text-gray-800">My Dashboard</h1>
+                                <p class="text-gray-600">Welcome back, ${this.appState.currentUser.name}</p>
+                            </div>
+                            
+                            <div class="text-center py-12 bg-white rounded-lg shadow-lg">
+                                <i class="fas fa-exclamation-triangle text-6xl text-red-300 mb-4"></i>
+                                <h3 class="text-xl font-semibold text-gray-600 mb-2">Error Loading Resumes</h3>
+                                <p class="text-gray-500 mb-6">${errorMessage}</p>
+                                <button onclick="uiService.loadUserDashboard()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
+                                    <i class="fas fa-redo mr-2"></i> Try Again
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            getEmptyState() {
+                return `
+                    <div class="text-center py-12 bg-white rounded-lg shadow-lg">
+                        <i class="fas fa-file-plus text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-semibold text-gray-600 mb-2">No resumes uploaded yet</h3>
+                        <p class="text-gray-500 mb-6">Start by uploading your first resume</p>
+                        <button onclick="uiService.showUploadModal()" class="gradient-bg text-white px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity">
+                            <i class="fas fa-plus mr-2"></i> Upload Your First Resume
+                        </button>
+                    </div>
+                `;
+            }
+
+            getResumeCard(resume) {
+                if (!resume) return '';
+                
+                const fileName = resume.fileName || 'Untitled Resume';
+                const description = resume.description || 'No description provided';
+                const uploadDate = resume.uploadedAt ? new Date(resume.uploadedAt).toLocaleDateString() : 'Unknown date';
+                const hasFileContent = !!resume.fileContent;
+                
+                return `
+                    <div class="bg-white rounded-lg shadow-lg p-6 card-hover">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center mb-3">
+                                    <i class="fas fa-file-alt text-2xl text-purple-600 mr-3"></i>
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-800">${fileName}</h3>
+                                        <p class="text-sm text-gray-500">Uploaded on ${uploadDate}</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <p class="text-gray-600">${description}</p>
+                                </div>
+                                
+                                <div class="flex items-center space-x-3">
+                                    <button onclick="uiService.viewResume('${this.apiService.getResumeId(resume)}')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+                                        <i class="fas fa-eye mr-1"></i> View
+                                    </button>
+                                    ${hasFileContent ? `
+                                        <button onclick="uiService.downloadResume('${this.apiService.getResumeId(resume)}')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+                                            <i class="fas fa-download mr-1"></i> Download
+                                        </button>
+                                    ` : `
+                                        <button disabled class="bg-gray-400 text-white px-4 py-2 rounded text-sm font-medium cursor-not-allowed">
+                                            <i class="fas fa-download mr-1"></i> Download Unavailable
+                                        </button>
+                                    `}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            showAdminPanel() {
+                this.appState.currentView = 'admin';
+                this.loadAdminPanel();
+            }
+
+            async loadAdminPanel() {
+                const app = document.getElementById('app');
+                
+                // Show loading skeleton
+                app.innerHTML = `
+                    <div class="fade-in">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-8">Admin Panel</h1>
+                        <div class="animate-pulse space-y-6">
+                            <div class="h-32 bg-gray-200 rounded"></div>
+                            <div class="h-40 bg-gray-200 rounded"></div>
+                        </div>
+                    </div>
+                `;
+
+                try {
+                    const [users, resumesWithUsers] = await Promise.all([
+                        this.apiService.getAllUsers(),
+                        this.apiService.getAllResumesWithUsers()
+                    ]);
+
+                    this.appState.users = users || []; // Store users for viewUserDetails
+                    const resumes = resumesWithUsers || [];
+
+                    app.innerHTML = `
+                        <div class="fade-in">
+                            <h1 class="text-3xl font-bold text-gray-800 mb-8">Admin Panel</h1>
+                            
+                            <!-- Statistics Cards -->
+                            <div class="grid md:grid-cols-3 gap-6 mb-8">
+                                <div class="bg-white rounded-lg shadow-lg p-6">
+                                    <div class="flex items-center">
+                                        <i class="fas fa-users text-3xl text-blue-600 mr-4"></i>
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-800">Total Users</h3>
+                                            <p class="text-2xl font-bold text-blue-600">${this.appState.users.length}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-white rounded-lg shadow-lg p-6">
+                                    <div class="flex items-center">
+                                        <i class="fas fa-file-alt text-3xl text-green-600 mr-4"></i>
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-800">Total Resumes</h3>
+                                            <p class="text-2xl font-bold text-green-600">${resumes.length}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-white rounded-lg shadow-lg p-6">
+                                    <div class="flex items-center">
+                                        <i class="fas fa-chart-line text-3xl text-purple-600 mr-4"></i>
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-gray-800">Active Today</h3>
+                                            <p class="text-2xl font-bold text-purple-600">${this.appState.users.length}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Tabs -->
+                            <div class="bg-white rounded-lg shadow-lg">
+                                <div class="border-b">
+                                    <nav class="flex">
+                                        <button onclick="uiService.switchAdminTab('users')" id="usersTab" class="px-6 py-3 border-b-2 border-purple-600 text-purple-600 font-semibold">
+                                            <i class="fas fa-users mr-2"></i> Users
+                                        </button>
+                                        <button onclick="uiService.switchAdminTab('resumes')" id="resumesTab" class="px-6 py-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-semibold">
+                                            <i class="fas fa-file-alt mr-2"></i> Resumes
+                                        </button>
+                                    </nav>
+                                </div>
+                                
+                                <!-- Users Tab Content -->
+                                <div id="usersTabContent" class="p-6">
+                                    <h3 class="text-xl font-semibold mb-4">Registered Users</h3>
+                                    ${this.appState.users.length === 0 ? `
+                                        <div class="text-center py-8 text-gray-500">
+                                            <i class="fas fa-users text-4xl mb-2"></i>
+                                            <p>No users found</p>
+                                        </div>
+                                    ` : `
+                                        <div class="overflow-x-auto">
+                                            <table class="w-full table-auto">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left">Name</th>
+                                                        <th class="px-4 py-2 text-left">Email</th>
+                                                        <th class="px-4 py-2 text-left">Role</th>
+                                                        <th class="px-4 py-2 text-left">Joined</th>
+                                                        <th class="px-4 py-2 text-left">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${this.appState.users.map(user => `
+                                                        <tr class="border-b hover:bg-gray-50">
+                                                            <td class="px-4 py-3">${user.name || 'Unknown'}</td>
+                                                            <td class="px-4 py-3">${user.email || 'No email'}</td>
+                                                            <td class="px-4 py-3">
+                                                                <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">${user.role || 'user'}</span>
+                                                            </td>
+                                                            <td class="px-4 py-3">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}</td>
+                                                            <td class="px-4 py-3">
+                                                                <button onclick="uiService.viewUserDetails('${this.apiService.getUserId(user)}')" class="text-blue-600 hover:text-blue-700 text-sm">
+                                                                    <i class="fas fa-eye mr-1"></i> View
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    `).join('')}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    `}
+                                </div>
+                                
+                                <!-- Resumes Tab Content -->
+                                <div id="resumesTabContent" class="p-6 hidden">
+                                    <h3 class="text-xl font-semibold mb-4">All Resumes</h3>
+                                    ${resumes.length === 0 ? `
+                                        <div class="text-center py-8 text-gray-500">
+                                            <i class="fas fa-file-alt text-4xl mb-2"></i>
+                                            <p>No resumes found</p>
+                                        </div>
+                                    ` : `
+                                        <div class="space-y-4">
+                                            ${resumes.map(resume => `
+                                                <div class="bg-gray-50 rounded-lg p-4">
+                                                    <div class="flex justify-between items-start">
+                                                        <div class="flex-1">
+                                                            <div class="flex items-center mb-2">
+                                                                <i class="fas fa-file-alt text-purple-600 mr-2"></i>
+                                                                <h4 class="font-semibold">${resume.fileName || 'Untitled Resume'}</h4>
+                                                            </div>
+                                                            <p class="text-sm text-gray-600 mb-1">
+                                                                <strong>User:</strong> ${resume.userName || 'Unknown User'} (${resume.userEmail || 'No email'})
+                                                            </p>
+                                                            <p class="text-sm text-gray-600 mb-2">
+                                                                <strong>Description:</strong> ${resume.description || 'No description'}
+                                                            </p>
+                                                            <p class="text-xs text-gray-500">
+                                                                Uploaded: ${resume.uploadedAt ? new Date(resume.uploadedAt).toLocaleString() : 'Unknown date'}
+                                                            </p>
+                                                        </div>
+                                                        <div class="flex space-x-2">
+                                                            <button onclick="uiService.adminViewResume('${this.apiService.getResumeId(resume)}')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">
+                                                                <i class="fas fa-eye mr-1"></i> View
+                                                            </button>
+                                                            <button onclick="uiService.adminDownloadResume('${this.apiService.getResumeId(resume)}')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs">
+                                                                <i class="fas fa-download mr-1"></i> Download
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    `}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } catch (error) {
+                    console.error('Admin panel loading error:', error);
+                    const errorMessage = error.message || 'Failed to load admin data';
+                    this.showToast(errorMessage, 'error');
+                    
+                    // Show error state
+                    app.innerHTML = `
+                        <div class="fade-in">
+                            <h1 class="text-3xl font-bold text-gray-800 mb-8">Admin Panel</h1>
+                            
+                            <div class="text-center py-12 bg-white rounded-lg shadow-lg">
+                                <i class="fas fa-exclamation-triangle text-6xl text-red-300 mb-4"></i>
+                                <h3 class="text-xl font-semibold text-gray-600 mb-2">Error Loading Admin Data</h3>
+                                <p class="text-gray-500 mb-6">${errorMessage}</p>
+                                <button onclick="uiService.loadAdminPanel()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors">
+                                    <i class="fas fa-redo mr-2"></i> Try Again
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            switchAdminTab(tab) {
+                // Update tab buttons
+                document.getElementById('usersTab').className = tab === 'users' 
+                    ? 'px-6 py-3 border-b-2 border-purple-600 text-purple-600 font-semibold'
+                    : 'px-6 py-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-semibold';
+                
+                document.getElementById('resumesTab').className = tab === 'resumes' 
+                    ? 'px-6 py-3 border-b-2 border-purple-600 text-purple-600 font-semibold'
+                    : 'px-6 py-3 border-b-2 border-transparent text-gray-500 hover:text-gray-700 font-semibold';
+                
+                // Show/hide content
+                document.getElementById('usersTabContent').classList.toggle('hidden', tab !== 'users');
+                document.getElementById('resumesTabContent').classList.toggle('hidden', tab !== 'resumes');
+            }
+
+            showUploadModal() {
+                const modal = document.createElement('div');
+                modal.id = 'uploadModal';
+                modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+                modal.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 slide-in">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-semibold text-gray-800">Upload Resume</h3>
+                            <button onclick="uiService.closeUploadModal()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        
+                        <form id="uploadForm">
+                            <div class="mb-4">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Select Resume File</label>
+                                <input type="file" id="resumeFile" accept=".pdf,.doc,.docx" required 
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+                                <p class="text-xs text-gray-500 mt-1">Supported formats: PDF, DOC, DOCX</p>
+                            </div>
+                            
+                            <div class="mb-6">
+                                <label class="block text-gray-700 text-sm font-bold mb-2">Description</label>
+                                <textarea id="resumeDescription" rows="3" placeholder="Add a description for this resume..."
+                                          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 resize-none"></textarea>
+                            </div>
+                            
+                            <div class="flex justify-end space-x-3">
+                                <button type="button" onclick="uiService.closeUploadModal()" 
+                                        class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                                    Cancel
+                                </button>
+                                <button type="submit" class="gradient-bg text-white px-4 py-2 rounded-lg hover:opacity-90">
+                                    <i class="fas fa-upload mr-2"></i> Upload
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                this.setupUploadForm();
+            }
+
+            closeUploadModal() {
+                const modal = document.getElementById('uploadModal');
+                if (modal) {
+                    document.body.removeChild(modal);
+                }
+            }
+
+            setupLoginForm() {
+                document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    const email = document.getElementById('loginEmail').value;
+                    const password = document.getElementById('loginPassword').value;
+                    
+                    this.showLoading();
+                    
+                    try {
+                        const user = await this.apiService.loginUser(email, password);
+                        this.appState.saveUserToStorage(user);
+                        this.updateNavigation();
+                        this.showDashboard();
+                        this.showToast('Welcome back!', 'success');
+                    } catch (error) {
+                        this.showToast(error.message, 'error');
+                    } finally {
+                        this.hideLoading();
+                    }
+                });
+            }
+
+            setupRegisterForm() {
+                document.getElementById('registerForm').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    const name = document.getElementById('registerName').value;
+                    const email = document.getElementById('registerEmail').value;
+                    const password = document.getElementById('registerPassword').value;
+                    
+                    this.showLoading();
+                    
+                    try {
+                        const user = await this.apiService.registerUser({ name, email, password });
+                        this.appState.saveUserToStorage(user);
+                        this.updateNavigation();
+                        this.showDashboard();
+                        this.showToast('Account created successfully!', 'success');
+                    } catch (error) {
+                        this.showToast(error.message, 'error');
+                    } finally {
+                        this.hideLoading();
+                    }
+                });
+            }
+
+            setupUploadForm() {
+                document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    
+                    const fileInput = document.getElementById('resumeFile');
+                    const description = document.getElementById('resumeDescription').value;
+                    
+                    if (!fileInput.files[0]) {
+                        this.showToast('Please select a file', 'error');
+                        return;
+                    }
+                    
+                    const file = fileInput.files[0];
+                    const fileName = file.name;
+                    
+                    // Validate file type
+                    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+                    if (!allowedTypes.includes(file.type)) {
+                        this.showToast('Please select a valid file type (PDF, DOC, or DOCX)', 'error');
+                        return;
+                    }
+                    
+                    // Validate file size (max 10MB)
+                    const maxSize = 10 * 1024 * 1024; // 10MB
+                    if (file.size > maxSize) {
+                        this.showToast('File size must be less than 10MB', 'error');
+                        return;
+                    }
+                    
+                    // Read file as data URL
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        this.showLoading();
+                        
+                        try {
+                            const userId = this.apiService.getUserId(this.appState.currentUser);
+                            if (!userId) {
+                                throw new Error('Invalid user ID for resume upload');
+                            }
+                            await this.apiService.saveResume(userId, {
+                                fileName,
+                                description,
+                                fileContent: e.target.result
+                            });
+                            
+                            this.closeUploadModal();
+                            this.showToast('Resume uploaded successfully!', 'success');
+                            this.loadUserDashboard();
+                        } catch (error) {
+                            console.error('Upload error:', error);
+                            this.showToast(error.message || 'Upload failed', 'error');
+                        } finally {
+                            this.hideLoading();
+                        }
+                    };
+                    
+                    reader.onerror = () => {
+                        this.showToast('Error reading file', 'error');
+                    };
+                    
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            viewResume(resumeId) {
+                const resume = this.appState.resumes.find(r => this.apiService.getResumeId(r) === resumeId);
+                if (!resume) {
+                    this.showToast('Resume not found', 'error');
+                    return;
+                }
+                
+                this.showResumeModal(resume);
+            }
+
+            adminViewResume(resumeId) {
+                // Fetch the specific resume for admin viewing
+                this.showToast('Loading resume...', 'info');
+                // In a real application, you would fetch the specific resume from the API
+                // For now, we'll show a placeholder
+                setTimeout(() => {
+                    this.showToast('Resume viewing functionality would open here', 'info');
+                }, 1000);
+            }
+
+            downloadResume(resumeId) {
+                const resume = this.appState.resumes.find(r => this.apiService.getResumeId(r) === resumeId);
+                if (!resume) {
+                    this.showToast('Resume not found', 'error');
+                    return;
+                }
+                
+                try {
+                    // Create a temporary download link
+                    const link = document.createElement('a');
+                    link.href = resume.fileContent;
+                    link.download = resume.fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    this.showToast('Download started', 'success');
+                } catch (error) {
+                    console.error('Download error:', error);
+                    this.showToast('Download failed', 'error');
+                }
+            }
+
+            adminDownloadResume(resumeId) {
+                // For admin downloads, we would need to fetch the resume first
+                this.showToast('Admin download functionality would work here', 'info');
+                // In a real application, you would implement proper admin download logic
+            }
+
+            showResumeModal(resume) {
+                if (!resume) {
+                    this.showToast('Resume data not available', 'error');
+                    return;
+                }
+
+                const modal = document.createElement('div');
+                modal.id = 'resumeModal';
+                modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+                modal.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden slide-in">
+                        <div class="flex justify-between items-center p-6 border-b">
+                            <div>
+                                <h3 class="text-xl font-semibold text-gray-800">${resume.fileName || 'Untitled Resume'}</h3>
+                                <p class="text-sm text-gray-600">Uploaded on ${resume.uploadedAt ? new Date(resume.uploadedAt).toLocaleDateString() : 'Unknown date'}</p>
+                            </div>
+                            <button onclick="uiService.closeResumeModal()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="p-6 overflow-y-auto max-h-[70vh]">
+                            <div class="mb-4">
+                                <h4 class="font-semibold text-gray-800 mb-2">Description:</h4>
+                                <p class="text-gray-600">${resume.description || 'No description provided'}</p>
+                            </div>
+                            
+                            <div class="bg-gray-100 rounded-lg p-8 text-center">
+                                <i class="fas fa-file-alt text-6xl text-gray-400 mb-4"></i>
+                                <p class="text-gray-600 mb-4">Resume preview would appear here</p>
+                                <p class="text-sm text-gray-500">In a production environment, this would show the actual resume content</p>
+                                ${resume.fileContent ? '<p class="text-xs text-green-600 mt-2">✓ File content available for download</p>' : '<p class="text-xs text-red-600 mt-2">⚠ File content not available</p>'}
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end space-x-3 p-6 border-t bg-gray-50">
+                            ${resume.fileContent ? `
+                                <button onclick="uiService.downloadResume('${this.apiService.getResumeId(resume)}')" 
+                                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+                                    <i class="fas fa-download mr-2"></i> Download
+                                </button>
+                            ` : `
+                                <button disabled class="bg-gray-400 text-white px-4 py-2 rounded-lg cursor-not-allowed">
+                                    <i class="fas fa-download mr-2"></i> Download Unavailable
+                                </button>
+                            `}
+                            <button onclick="uiService.closeResumeModal()" 
+                                    class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+            }
+
+            closeResumeModal() {
+                const modal = document.getElementById('resumeModal');
+                if (modal) {
+                    document.body.removeChild(modal);
+                }
+            }
+
+            viewUserDetails(userId) {
+                // Find the user in the current state
+                const user = this.appState.users.find(u => this.apiService.getUserId(u) === userId);
+                if (!user) {
+                    this.showToast('User not found', 'error');
+                    return;
+                }
+                
+                // Show user details in a modal
+                const modal = document.createElement('div');
+                modal.id = 'userDetailsModal';
+                modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
+                modal.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-xl w-full max-w-md slide-in">
+                        <div class="flex justify-between items-center p-6 border-b">
+                            <h3 class="text-xl font-semibold text-gray-800">User Details</h3>
+                            <button onclick="uiService.closeUserDetailsModal()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times text-xl"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="p-6">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Name</label>
+                                    <p class="text-lg text-gray-900">${user.name}</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Email</label>
+                                    <p class="text-lg text-gray-900">${user.email}</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Role</label>
+                                    <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">${user.role}</span>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Joined</label>
+                                    <p class="text-lg text-gray-900">${new Date(user.createdAt).toLocaleDateString()}</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end p-6 border-t bg-gray-50">
+                            <button onclick="uiService.closeUserDetailsModal()" 
+                                    class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+            }
+
+            closeUserDetailsModal() {
+                const modal = document.getElementById('userDetailsModal');
+                if (modal) {
+                    document.body.removeChild(modal);
+                }
+            }
+
+            logout() {
+                this.appState.clearUserFromStorage();
+                this.updateNavigation();
+                this.showLanding();
+                this.showToast('Logged out successfully', 'success');
+            }
+        }
+
+        // Application Initialization
+        let appState, apiService, uiService;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize services
+            appState = new AppState();
+            apiService = new ApiService(appState);
+            uiService = new UIService(appState, apiService);
+            
+            // Make uiService globally accessible
+            window.uiService = uiService;
+            
+            // Set up initial view
+            uiService.updateNavigation();
+            
+            if (appState.isAuthenticated()) {
+                uiService.showDashboard();
+            } else {
+                uiService.showLanding();
+            }
+        });
+
+        // Handle browser back/forward
+        window.addEventListener('popstate', () => {
+            if (appState.isAuthenticated()) {
+                uiService.showDashboard();
+            } else {
+                uiService.showLanding();
+            }
+        });
+
+        // Handle file drop for resume upload
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (appState.isAuthenticated() && appState.currentView === 'dashboard') {
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    const file = files[0];
+                    if (file.type.includes('pdf') || file.type.includes('doc')) {
+                        uiService.showUploadModal();
+                        // Auto-fill the file input
+                        setTimeout(() => {
+                            const fileInput = document.getElementById('resumeFile');
+                            if (fileInput) {
+                                // Note: Due to security restrictions, we can't programmatically set file input
+                                // This would work in a real application with proper file handling
+                                uiService.showToast('File detected! Please use the upload button to select files.', 'info');
+                            }
+                        }, 100);
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
